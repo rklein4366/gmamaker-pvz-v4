@@ -33,6 +33,8 @@ global.pvz_lawn_spawn_wave_count = 4; // gZombieWaves[0] from Challenge.cpp.
 global.pvz_lawn_spawn_countdown = 1800; // ZOMBIE_COUNTDOWN_FIRST_WAVE in GameConstants.h.
 global.pvz_lawn_grid = ds_grid_create(PVZ_COLS, pvz_lawn_active_rows());
 ds_grid_clear(global.pvz_lawn_grid, noone);
+global.pvz_lawn_support_grid = ds_grid_create(PVZ_COLS, pvz_lawn_active_rows());
+ds_grid_clear(global.pvz_lawn_support_grid, noone);
 global.pvz_lawn_sun = 150;
 global.pvz_lawn_sun_countdown = 425 + irandom(274); // Board initialization: SUN_COUNTDOWN + Rand(SUN_COUNTDOWN_RANGE).
 global.pvz_lawn_suns_fallen = 0;

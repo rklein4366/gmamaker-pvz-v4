@@ -67,6 +67,81 @@ function pvz_lawn_is_pool_row(_row) {
     return variable_global_exists("pvz_lawn_environment_index") && (global.pvz_lawn_environment_index == 2 || global.pvz_lawn_environment_index == 3) && (_row == 2 || _row == 3);
 }
 
+
+function pvz_lawn_support_at(_col, _row) {
+    if (_col < 0 || _col >= PVZ_COLS || _row < 0 || _row >= pvz_lawn_active_rows()) return noone;
+    if (!variable_global_exists("pvz_lawn_support_grid")) return noone;
+    if (!ds_exists(global.pvz_lawn_support_grid, ds_type_grid)) return noone;
+    var _p = global.pvz_lawn_support_grid[# _col, _row];
+    return instance_exists(_p) ? _p : noone;
+}
+
+function pvz_lawn_top_plant_at(_col, _row) {
+    var _p = noone;
+    if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid)) {
+        _p = global.pvz_lawn_grid[# _col, _row];
+    }
+    if (!instance_exists(_p)) _p = pvz_lawn_support_at(_col, _row);
+    return instance_exists(_p) ? _p : noone;
+}
+
+function pvz_lawn_plant_clear_cell_reference(_plant) {
+    if (!instance_exists(_plant)) return;
+    if (!variable_instance_exists(_plant, "cell_col") || !variable_instance_exists(_plant, "cell_row")) return;
+    var _col = _plant.cell_col;
+    var _row = _plant.cell_row;
+    if (_col < 0 || _col >= PVZ_COLS || _row < 0 || _row >= pvz_lawn_active_rows()) return;
+    if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid)
+        && global.pvz_lawn_grid[# _col, _row] == _plant) {
+        global.pvz_lawn_grid[# _col, _row] = noone;
+    }
+    if (variable_global_exists("pvz_lawn_support_grid") && ds_exists(global.pvz_lawn_support_grid, ds_type_grid)
+        && global.pvz_lawn_support_grid[# _col, _row] == _plant) {
+        global.pvz_lawn_support_grid[# _col, _row] = noone;
+    }
+}
+
+/// Board::CanPlantAt terrain/support rules for this lawn test board.
+/// A support occupies its own layer, so ordinary plants can be stacked on Lily Pads/Flower Pots.
+function pvz_lawn_plant_placement_error(_kind, _col, _row) {
+    var _top = noone;
+    if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid)) {
+        _top = global.pvz_lawn_grid[# _col, _row];
+    }
+    var _support = pvz_lawn_support_at(_col, _row);
+    var _has_top = instance_exists(_top);
+    var _has_support = instance_exists(_support);
+    var _pool = pvz_lawn_is_pool_row(_row);
+    var _roof = variable_global_exists("pvz_lawn_environment_index") && global.pvz_lawn_environment_index >= 4;
+
+    if (_kind == "lily_pad") {
+        if (!_pool) return "Lily Pads can only be planted in the pool.";
+        if (_has_top || _has_support) return "That pool square already has a plant.";
+        return "";
+    }
+    if (_kind == "flower_pot") {
+        if (!_roof) return "Flower Pots can only be planted on the roof.";
+        if (_has_top || _has_support) return "That roof square already has a plant.";
+        return "";
+    }
+    if (_has_top) return "That square is already occupied. Zombies can eat plants to clear it.";
+
+    if (_roof) {
+        if (!_has_support || _support.plant_kind != "flower_pot") return "Plant a Flower Pot on the roof first.";
+        return "";
+    }
+    if (_pool) {
+        if (_kind == "sea_shroom" || _kind == "tangle_kelp") {
+            if (_has_support) return "That water square already has a support plant.";
+            return "";
+        }
+        if (!_has_support || _support.plant_kind != "lily_pad") return "Plant a Lily Pad in the pool first.";
+        return "";
+    }
+    if (_has_support) return "That support plant is not compatible with this ground.";
+    return "";
+}
+
 /// Reset the board when changing the test lawn. The original CutScene pan and SeedChooser are replayed,
 /// rather than changing only the backdrop while leaving old rows, camera, plants, zombies, and seed bank behind.
 function pvz_lawn_reset_for_environment(_environment) {
@@ -89,8 +164,11 @@ function pvz_lawn_reset_for_environment(_environment) {
     with (obj_pvz_lawn_mower) { if (!is_undefined(mower_body)) mower_body.dead = true; instance_destroy(); }
 
     if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid)) ds_grid_destroy(global.pvz_lawn_grid);
+    if (variable_global_exists("pvz_lawn_support_grid") && ds_exists(global.pvz_lawn_support_grid, ds_type_grid)) ds_grid_destroy(global.pvz_lawn_support_grid);
     global.pvz_lawn_grid = ds_grid_create(PVZ_COLS, pvz_lawn_active_rows());
     ds_grid_clear(global.pvz_lawn_grid, noone);
+    global.pvz_lawn_support_grid = ds_grid_create(PVZ_COLS, pvz_lawn_active_rows());
+    ds_grid_clear(global.pvz_lawn_support_grid, noone);
     for (var _row = 0; _row < pvz_lawn_active_rows(); _row++) {
         // Board::LawnMowerInitialize only creates pool cleaners in water rows when the
         // Pool Cleaner purchase is owned. Stage0 has no shop/save purchase state, so don't
@@ -814,10 +892,7 @@ function pvz_lawn_zombie_ignores_ground_collision(_zid) {
 
 function pvz_lawn_zombie_remove_plant(_pid) {
     if (!instance_exists(_pid)) return;
-    var _col = _pid.cell_col, _row = _pid.cell_row;
-    if (variable_global_exists("pvz_lawn_grid") && _col >= 0 && _col < PVZ_COLS && _row >= 0 && _row < pvz_lawn_active_rows()) {
-        if (global.pvz_lawn_grid[# _col, _row] == _pid) global.pvz_lawn_grid[# _col, _row] = noone;
-    }
+    pvz_lawn_plant_clear_cell_reference(_pid);
     instance_destroy(_pid);
 }
 
@@ -905,7 +980,7 @@ function pvz_lawn_boss_begin_bungee(_zid) {
     _zid.boss_target_col = irandom_range(0, 2);
     _zid.boss_bungee_counter = irandom_range(4000, 5000);
     _zid.boss_bungee_ids = [];
-    _zid.body.play("anim_bungee_1_enter", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 12.0);
+    _zid.body.play("anim_bungee_1_enter", ReanimLoop.PLAY_ONCE_AND_HOLD, 20, 12.0);
     _zid.special_counter = max(1, round(_zid.body.frame_count / 12.0 * 100.0));
     _zid.special_triggered = false;
     pvz_lawn_play_sound("hydraulic_short.ogg");
@@ -919,7 +994,7 @@ function pvz_lawn_boss_begin_rv(_zid) {
     var _last_target_row = min(4, max(0, pvz_lawn_active_rows() - 2));
     _zid.boss_target_row = irandom(_last_target_row);
     _zid.boss_target_col = irandom(2);
-    _zid.body.play("anim_RV_1", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 16.0);
+    _zid.body.play("anim_RV_1", ReanimLoop.PLAY_ONCE_AND_HOLD, 20, 16.0);
     _zid.special_counter = max(1, round(_zid.body.frame_count / 16.0 * 100.0));
     _zid.special_triggered = false;
     pvz_lawn_play_sound("hydraulic_short.ogg");
@@ -1401,44 +1476,78 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
 
     if (_kind == "bungee") {
         if (_zid.phase == "bungee_dive") {
+            // UpdateZombieBungee: descend by 8 source units per 100Hz logic tick.
+            // BungeeLanding emits its scream early in the descent, not at the lawn.
+            if (!_zid.special_triggered) {
+                _zid.special_triggered = true;
+                pvz_lawn_play_sound("bungee_scream.ogg");
+            }
             _zid.altitude = max(0, _zid.altitude - 8.0);
             _zid.body.x = _zid.x; _zid.body.y = _zid.y - _zid.altitude;
             if (_zid.altitude <= 0) {
+                // BungeeLanding -> PHASE_BUNGEE_AT_BOTTOM. The source waits 300 ticks
+                // in anim_idle (starting at 0.5) before BungeeStealTarget plays anim_grab.
                 _zid.altitude = 0;
+                _zid.phase = "bungee_at_bottom";
+                _zid.special_counter = 300;
+                _zid.body.play("anim_idle", ReanimLoop.LOOP, 5, 24.0);
+                _zid.body.anim_time = 0.5;
+            }
+            return true;
+        }
+        if (_zid.phase == "bungee_at_bottom") {
+            _zid.special_counter--;
+            _zid.body.x = _zid.x; _zid.body.y = _zid.y;
+            if (_zid.special_counter <= 0) {
+                // BungeeStealTarget selects the current top plant at the chosen cell,
+                // rather than holding a stale target from the start of the descent.
+                var _grab_plant = noone;
+                if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid)) {
+                    _grab_plant = global.pvz_lawn_grid[# _zid.bungee_target_col, _zid.row];
+                }
+                if (!instance_exists(_grab_plant)) _grab_plant = pvz_lawn_support_at(_zid.bungee_target_col, _zid.row);
+                if (instance_exists(_grab_plant) && variable_instance_exists(_grab_plant, "plant_kind")
+                    && (_grab_plant.plant_kind == "gravebuster" || _grab_plant.plant_kind == "grave_buster" || _grab_plant.plant_kind == "cob_cannon")) {
+                    _grab_plant = noone;
+                }
+                _zid.target_plant = instance_exists(_grab_plant) ? _grab_plant : noone;
+                if (instance_exists(_zid.target_plant)) {
+                    _zid.target_plant.on_bungee = true;
+                    _zid.target_plant.bungee_lift_counter = 0;
+                    _zid.target_plant.bungee_start_y = _zid.target_plant.y;
+                }
                 _zid.phase = "bungee_grab";
-                _zid.special_counter = 55;
-                _zid.body.play("anim_grab", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 24.0);
-                pvz_lawn_play_sound("bungee_scream.ogg");
+                _zid.body.play("anim_grab", ReanimLoop.PLAY_ONCE_AND_HOLD, 20, 24.0);
+                _zid.special_counter = 0;
             }
             return true;
         }
         if (_zid.phase == "bungee_grab") {
-            _zid.special_counter--;
+            // BungeeStealTarget waits for the real grab reanimation to finish.
             _zid.body.x = _zid.x; _zid.body.y = _zid.y;
             if (instance_exists(_zid.target_plant)) {
-                // PlantOnBungeeState::GETTING_GRABBED remains visible for the entire grab pose.
                 _zid.target_plant.on_bungee = true;
                 _zid.target_plant.bungee_lift_counter = 0;
-                _zid.target_plant.bungee_start_y = _zid.target_plant.y;
             }
-            if (_zid.special_counter <= 0 || _zid.body.loop_count > 0) {
+            if (_zid.body.loop_count > 0) {
+                // BungeeLiftTarget -> PHASE_BUNGEE_RISING.
                 if (instance_exists(_zid.target_plant)) {
                     _zid.target_plant.on_bungee = true;
                     _zid.target_plant.bungee_lift_counter = 1;
                     _zid.target_plant.bungee_start_y = _zid.target_plant.y;
                 }
                 _zid.phase = "bungee_rise";
-                _zid.special_counter = 0;
                 _zid.body.play("anim_raise", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 36.0);
                 pvz_lawn_play_sound("bungee_floop.ogg");
             }
             return true;
         }
         if (_zid.phase == "bungee_rise") {
-            _zid.altitude += 2.5;
+            // UpdateZombieBungee increments altitude by 8.0 until it reaches 600.
+            _zid.altitude += 8.0;
             if (instance_exists(_zid.target_plant)) {
                 _zid.target_plant.bungee_lift_counter += 1;
-                _zid.target_plant.y -= 2.5;
+                _zid.target_plant.y -= 8.0;
                 _zid.target_plant.body.y = _zid.target_plant.y;
                 if (!is_undefined(_zid.target_plant.head)) _zid.target_plant.head.y = _zid.target_plant.y;
                 if (!is_undefined(_zid.target_plant.blink)) _zid.target_plant.blink.y = _zid.target_plant.y;
@@ -2082,13 +2191,13 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
             // Source BossAreBungeesDone returns when any Bungee starts rising, or none remain.
             if (_bungees_rising || _bungees_remaining == 0) {
                 _zid.phase = "boss_bungees_leave";
-                _zid.body.play("anim_bungee_1_leave", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 18.0);
+                _zid.body.play("anim_bungee_1_leave", ReanimLoop.PLAY_ONCE_AND_HOLD, 20, 18.0);
                 _zid.special_counter = max(1, round(_zid.body.frame_count / 18.0 * 100.0));
             }
             return true;
         }
         if (_zid.phase == "boss_bungees_leave") {
-            if (_zid.body.loop_count > 0 || _zid.special_counter <= 0) {
+            if (_zid.body.loop_count > 0) {
                 _zid.phase = "boss_idle";
                 _zid.special_counter = irandom_range(100, 200);
                 _zid.body.play("anim_idle", ReanimLoop.LOOP, 0, 6.0);
@@ -2103,6 +2212,8 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                     for (var _rv_col = _zid.boss_target_col; _rv_col <= min(PVZ_COLS - 1, _zid.boss_target_col + 2); _rv_col++) {
                         var _rv_plant = global.pvz_lawn_grid[# _rv_col, _rv_row];
                         if (instance_exists(_rv_plant)) pvz_lawn_plant_squish(_rv_plant);
+                        var _rv_support = pvz_lawn_support_at(_rv_col, _rv_row);
+                        if (instance_exists(_rv_support) && _rv_support != _rv_plant) pvz_lawn_plant_squish(_rv_support);
                     }
                 }
                 pvz_lawn_play_sound("RVthrow.ogg");
@@ -2111,7 +2222,7 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                 if (_zid.boss_mode >= 1) _zid.boss_stomp_counter = 4000;
                 if (_zid.boss_mode >= 2) _zid.boss_bungee_counter = 6500;
             }
-            if (_zid.body.loop_count > 0 || _zid.special_counter <= 0) {
+            if (_zid.body.loop_count > 0) {
                 _zid.phase = "boss_idle";
                 _zid.special_counter = irandom_range(100, 200);
                 _zid.body.play("anim_idle", ReanimLoop.LOOP, 0, 6.0);
@@ -3706,7 +3817,7 @@ function pvz_lawn_find_plant(_zid, _max_dist) {
     var _row = _zid.row;
     var _zx = _zid.x;
     for (var _c = 0; _c < PVZ_COLS; _c++) {
-        var _p = global.pvz_lawn_grid[# _c, _row];
+        var _p = pvz_lawn_top_plant_at(_c, _row);
         if (instance_exists(_p)) {
             // Source Zombie::CanEatPlant excludes explosive plants; armed Potato Mines also trigger instead of being chewed.
             if (variable_instance_exists(_p, "plant_kind") && (_p.plant_kind == "cherry_bomb" || (_p.plant_kind == "potato_mine" && _p.plant_state != "arming"))) continue;
@@ -5229,7 +5340,7 @@ function pvz_lawn_plant_squish(_pid) {
             pvz_lawn_plant_explode(id, 1800, 115, 1, 40, "burn");
             pvz_lawn_spawn_particle("Powie", x + 40, y + 40);
             plant_state = "explode"; plant_state_countdown = 1;
-            if (global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+            pvz_lawn_plant_clear_cell_reference(id);
             exit;
         }
         if (variable_instance_exists(id, "plant_kind") && plant_kind == "potato_mine" && plant_state == "armed") {
@@ -5240,11 +5351,11 @@ function pvz_lawn_plant_squish(_pid) {
             if (!is_undefined(body) && body != noone) body.set_track_hidden("anim_glow", true);
             pvz_lawn_spawn_particle("PotatoMine", x + 20, y + 40);
             plant_state = "explode"; plant_state_countdown = 1;
-            if (global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+            pvz_lawn_plant_clear_cell_reference(id);
             exit;
         }
         squished = true; squish_countdown = 500;
-        if (variable_global_exists("pvz_lawn_grid") && ds_exists(global.pvz_lawn_grid, ds_type_grid) && cell_col >= 0 && cell_col < PVZ_COLS && cell_row >= 0 && cell_row < pvz_lawn_active_rows() && global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+        pvz_lawn_plant_clear_cell_reference(id);
         body.scale_y = 0.25; body.y = y + 45;
         if (!is_undefined(head) && head != noone) { head.scale_y = 0.25; head.y = y + 45; }
         if (!is_undefined(blink) && blink != noone) { blink.scale_y = 0.25; blink.y = y + 45; }
@@ -5285,7 +5396,7 @@ function pvz_lawn_plant_step(_kind) {
         if (!is_undefined(head)) pvz_lawn_set_reanim_flash(head, eaten_flash_countdown, "plant");
         if (!is_undefined(blink)) pvz_lawn_set_reanim_flash(blink, eaten_flash_countdown, "plant");
         if (plant_health <= 0) {
-            if (global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+            pvz_lawn_plant_clear_cell_reference(id);
             instance_destroy();
             break;
         }
@@ -5339,7 +5450,7 @@ function pvz_lawn_plant_step(_kind) {
                 pvz_lawn_spawn_particle("Powie", x + 40, y + 40);
                 plant_state = "explode";
                 plant_state_countdown = 1;
-                if (global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+                pvz_lawn_plant_clear_cell_reference(id);
             }
         } else if (_kind == "potato_mine") {
             if (plant_state == "arming") {
@@ -5384,7 +5495,7 @@ function pvz_lawn_plant_step(_kind) {
                     body.set_track_hidden("anim_glow", true);
                     plant_state = "explode";
                     plant_state_countdown = 1;
-                    if (global.pvz_lawn_grid[# cell_col, cell_row] == id) global.pvz_lawn_grid[# cell_col, cell_row] = noone;
+                    pvz_lawn_plant_clear_cell_reference(id);
                     // PotatoMine.xml already contains the original Mashed, low/high fragments,
                     // Spudow word and flash emitters. Do not overlay a second plant-body mash.
                     pvz_lawn_spawn_particle("PotatoMine", x + 40, y + 40);
@@ -5471,7 +5582,7 @@ function pvz_lawn_plant_step(_kind) {
             global.pvz_lawn_target_found = false;
             with (obj_zombie_base) {
                 var _zr = pvz_lawn_zombie_hitbox(id);
-                if (!dead && !intro_preview && has_head && !pvz_lawn_zombie_ignores_ground_collision(id) && (zombie_kind == "boss" ? boss_target_row == other.cell_row : row == other.cell_row)
+                if (!dead && !intro_preview && has_head && !pvz_lawn_zombie_ignores_ground_collision(id) && (zombie_kind == "boss" ? true : row == other.cell_row)
                     && !(zombie_kind == "balloon" && phase == "balloon_flying")
                     && !(zombie_kind == "snorkel" && phase == "snorkel_swimming")
                     && !(zombie_kind == "boss" && phase != "boss_head_down" && phase != "boss_head_spit" && phase != "boss_head_idle_after_spit")
@@ -5494,7 +5605,7 @@ function pvz_lawn_plant_step(_kind) {
                 }
             }
         }
-        depth = -y;
+        depth = (_kind == "lily_pad" || _kind == "flower_pot") ? (-y + 1) : -y;
     }
 }
 
@@ -5547,7 +5658,7 @@ function pvz_lawn_zombie_pick_bungee_target(_zid, _preferred_col = -1) {
     var _bungees_targeting_sunflowers = 0;
     for (var _c = 0; _c < PVZ_COLS; _c++) {
         for (var _r = 0; _r < pvz_lawn_active_rows(); _r++) {
-            var _p = global.pvz_lawn_grid[# _c, _r];
+            var _p = pvz_lawn_top_plant_at(_c, _r);
             if (instance_exists(_p) && variable_instance_exists(_p, "plant_kind")
                 && (_p.plant_kind == "sunflower" || _p.plant_kind == "twin_sunflower")) _sunflower_count++;
         }
@@ -5565,7 +5676,7 @@ function pvz_lawn_zombie_pick_bungee_target(_zid, _preferred_col = -1) {
     for (var _c = 0; _c < PVZ_COLS; _c++) {
         if (_preferred_col >= 0 && _c != _preferred_col) continue;
         for (var _r = 0; _r < pvz_lawn_active_rows(); _r++) {
-            var _p = global.pvz_lawn_grid[# _c, _r];
+            var _p = pvz_lawn_top_plant_at(_c, _r);
             var _weight = 1;
             if (instance_exists(_p)) {
                 if (!variable_instance_exists(_p, "plant_kind") || !variable_instance_exists(_p, "plant_health") || _p.plant_health <= 0) continue;
@@ -5866,7 +5977,8 @@ function pvz_lawn_zombie_init(_kind) {
             var _boss_track_name = string_lower(body.def.tracks[_boss_ti].name);
             if (string_pos("boss_innerleg", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 4;
             else if (string_pos("boss_outerleg", _boss_track_name) == 1 || string_pos("boss_body2", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 5;
-            else if (string_pos("boss_innerarm", _boss_track_name) == 1 || string_pos("boss_rv", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 6;
+            else if (string_pos("boss_innerarm", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 6;
+            else if (string_pos("boss_rv", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 9;
         }
         boss_driver_part = new Reanim("Zombie_Boss_driver", x, y);
         boss_driver_part.play("anim_idle", ReanimLoop.LOOP, 0, 18.0);
@@ -6131,6 +6243,45 @@ function pvz_lawn_draw_boss_mask_overlay(_boss, _track_name, _mask_path, _world_
     _reanim.y = _old_y;
 }
 
+
+/// Draw the Boss_RV track explicitly during the RV attack. This keeps the original
+/// Reanim frame/transform and the original target-row/column overlay offset.
+function pvz_lawn_draw_boss_rv(_boss, _world_x, _world_y, _camera_x) {
+    if (!instance_exists(_boss) || _boss.dead || _boss.phase != "boss_drop_rv"
+        || is_undefined(_boss.body) || _boss.body == noone) return;
+    var _reanim = _boss.body;
+    var _track_index = _reanim.find_track("Boss_RV");
+    if (_track_index < 0) return;
+    var _old_x = _reanim.x;
+    var _old_y = _reanim.y;
+    _reanim.x = _world_x - _camera_x;
+    _reanim.y = _world_y;
+    var _frame_time = _reanim.get_frame_time();
+    var _track_transform = _reanim.get_current_transform(_track_index, _frame_time);
+    var _frame = round(_track_transform[RT_FRAME]);
+    if (_frame >= 0 && _frame < array_length(_reanim.def.sprites)
+        && _track_transform[RT_ALPHA] > 0) {
+        var _sprite = _reanim.track_sprite_override[_track_index];
+        if (_sprite < 0) _sprite = _reanim.def.sprites[_frame];
+        if (_sprite >= 0) {
+            var _matrix = mat2_mul(_reanim.get_overlay_matrix(), mat2_from_transform(_track_transform));
+            var _width = sprite_get_width(_sprite);
+            var _height = sprite_get_height(_sprite);
+            var _x1 = _matrix[2], _y1 = _matrix[5];
+            var _x2 = _matrix[0] * _width + _matrix[2], _y2 = _matrix[3] * _width + _matrix[5];
+            var _x4 = _matrix[1] * _height + _matrix[2], _y4 = _matrix[4] * _height + _matrix[5];
+            var _x3 = _x2 + (_x4 - _x1), _y3 = _y2 + (_y4 - _y1);
+            gpu_set_blendmode(bm_normal);
+            pvz_reanim_draw_sprite_pos_tinted(_sprite, _x1, _y1, _x2, _y2, _x3, _y3, _x4, _y4,
+                c_white, clamp(_track_transform[RT_ALPHA], 0, 1));
+            gpu_set_blendmode(bm_normal);
+            draw_set_color(c_white);
+        }
+    }
+    _reanim.x = _old_x;
+    _reanim.y = _old_y;
+}
+
 /// Draw the source's BossPart::BOSS_PART_BACK_ARM pass after lane objects.
 function pvz_lawn_draw_boss_front_arm(_boss) {
     if (!instance_exists(_boss) || _boss.dead || is_undefined(_boss.body)) return;
@@ -6144,6 +6295,7 @@ function pvz_lawn_draw_boss_front_arm(_boss) {
         _arm_offset_x = _boss.boss_target_col * 80.0 - 23.0;
     }
     pvz_lawn_reanim_draw_camera(_boss.body, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x, 6);
+    pvz_lawn_draw_boss_rv(_boss, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x);
 }
 
 

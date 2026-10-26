@@ -514,11 +514,13 @@ if (mouse_check_button_pressed(mb_left)) {
             var _col = floor((_world_mouse_x - PVZ_GRID_X) / PVZ_CELL_W);
             var _row = floor((mouse_y - PVZ_GRID_Y) / pvz_lawn_cell_height());
             var _old = global.pvz_lawn_grid[# _col, _row];
+            var _support = pvz_lawn_support_at(_col, _row);
             if (global.pvz_lawn_shovel_selected) {
-                if (instance_exists(_old)) {
+                var _shovel_plant = instance_exists(_old) ? _old : _support;
+                if (instance_exists(_shovel_plant)) {
                     pvz_lawn_play_sound("plant2.ogg");
-                    global.pvz_lawn_grid[# _col, _row] = noone;
-                    instance_destroy(_old);
+                    pvz_lawn_plant_clear_cell_reference(_shovel_plant);
+                    instance_destroy(_shovel_plant);
                     global.pvz_lawn_selected = "";
                     global.pvz_lawn_shovel_selected = false;
                     global.pvz_lawn_message = "Plant removed.";
@@ -540,30 +542,42 @@ if (mouse_check_button_pressed(mb_left)) {
                     global.pvz_lawn_message = "That seed is not available.";
                     global.pvz_lawn_message_ticks = 120;
                 } else {
-                    var _cost = global.pvz_lawn_seed_costs[_seed_idx];
-                    var _recharge = global.pvz_lawn_seed_packet_refresh[_seed_idx];
-                    if (_recharge > 0) {
-                        global.pvz_lawn_message = "That seed packet is still recharging.";
-                        global.pvz_lawn_message_ticks = 160;
-                    } else if (global.pvz_lawn_sun < _cost) {
-                        global.pvz_lawn_message = "Not enough sun. Collect falling sun drops or plant Sunflowers.";
+                    var _place_error = pvz_lawn_plant_placement_error(_planted_kind, _col, _row);
+                    if (_place_error != "") {
+                        global.pvz_lawn_message = _place_error;
                         global.pvz_lawn_message_ticks = 180;
                     } else {
-                        global.pvz_lawn_sun -= _cost;
-                        global.pvz_lawn_seed_packet_refresh[_seed_idx] = global.pvz_lawn_seed_recharges[_seed_idx];
-                        global.pvz_lawn_seed_packet_flash[_seed_idx] = 0;
-                        global.pvz_lawn_seed_packet_ready_state[_seed_idx] = false;
-                        var _px = PVZ_GRID_X + _col * PVZ_CELL_W;
-                        var _py = pvz_lawn_row_y(_row, _px, 0);
-                        var _po = pvz_lawn_plant_object(_planted_kind);
-                        var _pi = instance_create_layer(_px, _py, "Instances", _po, {});
-                        global.pvz_lawn_grid[# _col, _row] = _pi;
-                        pvz_lawn_play_random_sound(["plant.ogg", "plant2.ogg"]);
-                        pvz_lawn_spawn_planting_dirt(_px, _py);
-                        global.pvz_lawn_selected = "";
-                        global.pvz_lawn_shovel_selected = false;
-                        global.pvz_lawn_message = global.pvz_lawn_seed_labels[_seed_idx] + " planted.";
-                        global.pvz_lawn_message_ticks = 160;
+                        var _cost = global.pvz_lawn_seed_costs[_seed_idx];
+                        var _recharge = global.pvz_lawn_seed_packet_refresh[_seed_idx];
+                        if (_recharge > 0) {
+                            global.pvz_lawn_message = "That seed packet is still recharging.";
+                            global.pvz_lawn_message_ticks = 160;
+                        } else if (global.pvz_lawn_sun < _cost) {
+                            global.pvz_lawn_message = "Not enough sun. Collect falling sun drops or plant Sunflowers.";
+                            global.pvz_lawn_message_ticks = 180;
+                        } else {
+                            global.pvz_lawn_sun -= _cost;
+                            global.pvz_lawn_seed_packet_refresh[_seed_idx] = global.pvz_lawn_seed_recharges[_seed_idx];
+                            global.pvz_lawn_seed_packet_flash[_seed_idx] = 0;
+                            global.pvz_lawn_seed_packet_ready_state[_seed_idx] = false;
+                            var _px = PVZ_GRID_X + _col * PVZ_CELL_W;
+                            var _py = pvz_lawn_row_y(_row, _px, 0);
+                            var _po = pvz_lawn_plant_object(_planted_kind);
+                            var _pi = instance_create_layer(_px, _py, "Instances", _po, {});
+                            if (_planted_kind == "lily_pad" || _planted_kind == "flower_pot") {
+                                global.pvz_lawn_support_grid[# _col, _row] = _pi;
+                            } else {
+                                global.pvz_lawn_grid[# _col, _row] = _pi;
+                            }
+                            pvz_lawn_play_random_sound(["plant.ogg", "plant2.ogg"]);
+                            pvz_lawn_spawn_planting_dirt(_px, _py);
+                            global.pvz_lawn_selected = "";
+                            global.pvz_lawn_shovel_selected = false;
+                            global.pvz_lawn_message = global.pvz_lawn_seed_labels[_seed_idx] + " planted.";
+                            global.pvz_lawn_message_ticks = 160;
+                        }
+                    }
+                }
                     }
                 }
             }
