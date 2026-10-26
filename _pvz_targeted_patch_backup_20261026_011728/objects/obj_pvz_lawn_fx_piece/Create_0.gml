@@ -1,0 +1,84 @@
+if (!variable_instance_exists(id, "fx_sprite")) fx_sprite = -1;
+if (!variable_instance_exists(id, "fx_vx")) fx_vx = 0;
+if (!variable_instance_exists(id, "fx_vy")) fx_vy = 0;
+if (!variable_instance_exists(id, "fx_spin")) fx_spin = 0;
+if (!variable_instance_exists(id, "fx_life")) fx_life = 60;
+if (!variable_instance_exists(id, "fx_kind")) fx_kind = "piece";
+if (!variable_instance_exists(id, "fx_gravity")) fx_gravity = 0.17;
+if (!variable_instance_exists(id, "fx_ground_y")) fx_ground_y = y + 90;
+if (!variable_instance_exists(id, "fx_reflect")) fx_reflect = 0.3;
+if (!variable_instance_exists(id, "fx_fade_start")) fx_fade_start = round(fx_life * 0.9);
+if (!variable_instance_exists(id, "fx_scale")) fx_scale = 0.8;
+if (!variable_instance_exists(id, "fx_scale_end")) fx_scale_end = fx_scale;
+if (!variable_instance_exists(id, "fx_scale_keytime")) fx_scale_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_scale_times")) fx_scale_times = [];
+if (!variable_instance_exists(id, "fx_scale_curve")) fx_scale_curve = [];
+if (!variable_instance_exists(id, "fx_frame_count")) fx_frame_count = 1;
+if (!variable_instance_exists(id, "fx_alpha_mult")) fx_alpha_mult = 1.0;
+if (!variable_instance_exists(id, "fx_color_r_start")) fx_color_r_start = 1.0;
+if (!variable_instance_exists(id, "fx_color_r_end")) fx_color_r_end = fx_color_r_start;
+if (!variable_instance_exists(id, "fx_color_r_keytime")) fx_color_r_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_color_g_start")) fx_color_g_start = 1.0;
+if (!variable_instance_exists(id, "fx_color_g_end")) fx_color_g_end = fx_color_g_start;
+if (!variable_instance_exists(id, "fx_color_g_keytime")) fx_color_g_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_color_b_start")) fx_color_b_start = 1.0;
+if (!variable_instance_exists(id, "fx_color_b_end")) fx_color_b_end = fx_color_b_start;
+if (!variable_instance_exists(id, "fx_color_b_keytime")) fx_color_b_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_charred_reanim")) fx_charred_reanim = undefined;
+if (!variable_instance_exists(id, "fx_charred_finished_age")) fx_charred_finished_age = -1;
+if (!variable_instance_exists(id, "fx_friction_x")) fx_friction_x = 0;
+if (!variable_instance_exists(id, "fx_friction_y")) fx_friction_y = 0;
+if (!variable_instance_exists(id, "fx_friction_x_end")) fx_friction_x_end = fx_friction_x;
+if (!variable_instance_exists(id, "fx_friction_x_keytime")) fx_friction_x_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_friction_y_end")) fx_friction_y_end = fx_friction_y;
+if (!variable_instance_exists(id, "fx_friction_y_keytime")) fx_friction_y_keytime = 1.0;
+if (!variable_instance_exists(id, "fx_ground_enabled")) fx_ground_enabled = true;
+if (!variable_instance_exists(id, "fx_spin_decay")) fx_spin_decay = true;
+if (!variable_instance_exists(id, "fx_parent_emitter")) fx_parent_emitter = noone;
+if (!variable_instance_exists(id, "fx_xml_data")) fx_xml_data = undefined;
+if (!variable_instance_exists(id, "fx_xml_sprites")) fx_xml_sprites = [];
+if (!variable_instance_exists(id, "fx_xml_frame")) fx_xml_frame = 0;
+if (!variable_instance_exists(id, "fx_xml_origin_x")) fx_xml_origin_x = x;
+if (!variable_instance_exists(id, "fx_xml_origin_y")) fx_xml_origin_y = y;
+if (!variable_instance_exists(id, "fx_xml_age")) fx_xml_age = 0;
+if (!variable_instance_exists(id, "fx_xml_spawned")) fx_xml_spawned = 0;
+if (!variable_instance_exists(id, "fx_xml_spawn_accum")) fx_xml_spawn_accum = 0;
+if (!variable_instance_exists(id, "fx_xml_initial_active")) fx_xml_initial_active = 0;
+if (!variable_instance_exists(id, "fx_follow_id")) fx_follow_id = noone;
+if (!variable_instance_exists(id, "fx_scale_end")) fx_scale_end = fx_scale;
+if (!variable_instance_exists(id, "fx_frame_count")) fx_frame_count = 1;
+if (!variable_instance_exists(id, "fx_alpha_mult")) fx_alpha_mult = 1.0;
+if (!variable_instance_exists(id, "fx_friction_x")) fx_friction_x = 0;
+if (!variable_instance_exists(id, "fx_friction_y")) fx_friction_y = 0;
+if (!variable_instance_exists(id, "fx_ground_enabled")) fx_ground_enabled = true;
+if (!variable_instance_exists(id, "fx_spin_decay")) fx_spin_decay = true;
+if (!variable_instance_exists(id, "fx_parent_emitter")) fx_parent_emitter = noone;
+if (!variable_instance_exists(id, "fx_xml_data")) fx_xml_data = undefined;
+if (!variable_instance_exists(id, "fx_xml_sprites")) fx_xml_sprites = [];
+if (!variable_instance_exists(id, "fx_xml_origin_x")) fx_xml_origin_x = x;
+if (!variable_instance_exists(id, "fx_xml_origin_y")) fx_xml_origin_y = y;
+if (!variable_instance_exists(id, "fx_xml_age")) fx_xml_age = 0;
+if (!variable_instance_exists(id, "fx_xml_spawned")) fx_xml_spawned = 0;
+if (!variable_instance_exists(id, "fx_xml_next_spawn")) fx_xml_next_spawn = 1;
+if (!variable_instance_exists(id, "fx_xml_initial_active")) fx_xml_initial_active = 0;
+if (fx_sprite >= 0) {
+    // Particle sprites rotate around their center in PvZ. The Reanim renderer uses explicit
+    // four-corner coordinates, so changing a dynamic sprite's origin does not move live Reanims.
+    sprite_set_offset(fx_sprite, sprite_get_width(fx_sprite) * 0.5, sprite_get_height(fx_sprite) * 0.5);
+}
+if (!variable_instance_exists(id, "fx_age")) fx_age = 0;
+if (!variable_instance_exists(id, "fx_angle")) fx_angle = 0;
+fx_bounces = 0;
+fx_bounce_spin = 0;
+fx_grounded = false;
+if (!variable_instance_exists(id, "fx_spin_active_until")) fx_spin_active_until = round(fx_life * 0.4);
+depth = -y - 50;
+
+// Keep the parsed source reflect fields available for XML particle children; manually
+// detached limb/head fragments settle at first contact in Step_0 to avoid a second fall.
+if (!variable_instance_exists(id, "fx_reflect_start")) fx_reflect_start = fx_reflect;
+if (!variable_instance_exists(id, "fx_reflect_end")) fx_reflect_end = fx_reflect;
+if (!variable_instance_exists(id, "fx_reflect_fade_start")) fx_reflect_fade_start = 1.0;
+if (!variable_instance_exists(id, "fx_reflect_fade_end")) fx_reflect_fade_end = 1.0;
+if (!variable_instance_exists(id, "fx_collision_spin")) fx_collision_spin = 0.0;
+if (!variable_instance_exists(id, "fx_collision_spin_done")) fx_collision_spin_done = false;
