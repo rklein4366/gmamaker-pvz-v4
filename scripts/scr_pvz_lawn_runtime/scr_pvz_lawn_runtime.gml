@@ -2169,7 +2169,10 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                     var _bungee = instance_create_layer(0, 0, "Instances", obj_zombie_bungee,
                         {row: 0, bungee_preferred_col: _preferred_col});
                     if (instance_exists(_bungee) && !_bungee.dead && !is_undefined(_bungee.body)) {
-                        _bungee.altitude = max(0, _bungee.y - 30.0);
+                        // Source BossBungeeSpawn assigns altitude = mPosY - 30. The target picker stores
+                        // the ground anchor 30px above that row position, so _bungee.y is already
+                        // the correct altitude; subtracting again started the Bungee too low.
+                        _bungee.altitude = max(0, _bungee.y);
                         _bungee.body.x = _bungee.x;
                         _bungee.body.y = _bungee.y - _bungee.altitude;
                         array_push(_zid.boss_bungee_ids, _bungee);
@@ -5188,7 +5191,7 @@ function pvz_lawn_zombie_step(_zid) {
                         pvz_lawn_play_sound("gulp.ogg");
                         var _col = target_plant.cell_col;
                         var _row = target_plant.cell_row;
-                        if (global.pvz_lawn_grid[# _col, _row] == target_plant) global.pvz_lawn_grid[# _col, _row] = noone;
+                        pvz_lawn_plant_clear_cell_reference(target_plant);
                         instance_destroy(target_plant);
                         target_plant = noone;
                         pvz_lawn_zombie_play_walk(id, 20);
@@ -6244,44 +6247,6 @@ function pvz_lawn_draw_boss_mask_overlay(_boss, _track_name, _mask_path, _world_
 }
 
 
-/// Draw the Boss_RV track explicitly during the RV attack. This keeps the original
-/// Reanim frame/transform and the original target-row/column overlay offset.
-function pvz_lawn_draw_boss_rv(_boss, _world_x, _world_y, _camera_x) {
-    if (!instance_exists(_boss) || _boss.dead || _boss.phase != "boss_drop_rv"
-        || is_undefined(_boss.body) || _boss.body == noone) return;
-    var _reanim = _boss.body;
-    var _track_index = _reanim.find_track("Boss_RV");
-    if (_track_index < 0) return;
-    var _old_x = _reanim.x;
-    var _old_y = _reanim.y;
-    _reanim.x = _world_x - _camera_x;
-    _reanim.y = _world_y;
-    var _frame_time = _reanim.get_frame_time();
-    var _track_transform = _reanim.get_current_transform(_track_index, _frame_time);
-    var _frame = round(_track_transform[RT_FRAME]);
-    if (_frame >= 0 && _frame < array_length(_reanim.def.sprites)
-        && _track_transform[RT_ALPHA] > 0) {
-        var _sprite = _reanim.track_sprite_override[_track_index];
-        if (_sprite < 0) _sprite = _reanim.def.sprites[_frame];
-        if (_sprite >= 0) {
-            var _matrix = mat2_mul(_reanim.get_overlay_matrix(), mat2_from_transform(_track_transform));
-            var _width = sprite_get_width(_sprite);
-            var _height = sprite_get_height(_sprite);
-            var _x1 = _matrix[2], _y1 = _matrix[5];
-            var _x2 = _matrix[0] * _width + _matrix[2], _y2 = _matrix[3] * _width + _matrix[5];
-            var _x4 = _matrix[1] * _height + _matrix[2], _y4 = _matrix[4] * _height + _matrix[5];
-            var _x3 = _x2 + (_x4 - _x1), _y3 = _y2 + (_y4 - _y1);
-            gpu_set_blendmode(bm_normal);
-            pvz_reanim_draw_sprite_pos_tinted(_sprite, _x1, _y1, _x2, _y2, _x3, _y3, _x4, _y4,
-                c_white, clamp(_track_transform[RT_ALPHA], 0, 1));
-            gpu_set_blendmode(bm_normal);
-            draw_set_color(c_white);
-        }
-    }
-    _reanim.x = _old_x;
-    _reanim.y = _old_y;
-}
-
 /// Draw the source's BossPart::BOSS_PART_BACK_ARM pass after lane objects.
 function pvz_lawn_draw_boss_front_arm(_boss) {
     if (!instance_exists(_boss) || _boss.dead || is_undefined(_boss.body)) return;
@@ -6295,7 +6260,11 @@ function pvz_lawn_draw_boss_front_arm(_boss) {
         _arm_offset_x = _boss.boss_target_col * 80.0 - 23.0;
     }
     pvz_lawn_reanim_draw_camera(_boss.body, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x, 6);
-    pvz_lawn_draw_boss_rv(_boss, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x);
+    // Render the complete Boss_RV track prefix through Reanim in its own foreground group.
+    // The RV is part of this Reanim, not a separate sprite/object.
+    if (_boss.phase == "boss_drop_rv") {
+        pvz_lawn_reanim_draw_camera(_boss.body, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x, 9);
+    }
 }
 
 
