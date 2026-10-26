@@ -50,9 +50,25 @@ repeat (global.pvz_lawn_steps) {
     // UpdateBossFireball emits the original persistent ground-trail particle at a 1-in-10
     // chance each logic tick, behind the moving ball. Ice uses Iceball_Trail instead.
     if (irandom(9) == 0) {
-        var _trail_x = x + 100.0 + random_range(0.0, 20.0);
-        var _trail_y = pvz_lawn_row_y(projectile_row, _trail_x - 40.0, 90.0) + random_range(-50.0, 0.0);
-        pvz_lawn_spawn_particle(projectile_kind == "ice" ? "Iceball_Trail" : "Fireball_Trail", _trail_x, _trail_y);
+        var _trail_name = projectile_kind == "ice" ? "Iceball_Trail" : "Fireball_Trail";
+        var _trail_key = string_lower(_trail_name);
+        var _active_trail_emitters = 0;
+        var _fx_count = instance_number(obj_pvz_lawn_fx_piece);
+        for (var _fx_i = 0; _fx_i < _fx_count; _fx_i++) {
+            var _fx_id = instance_find(obj_pvz_lawn_fx_piece, _fx_i);
+            if (instance_exists(_fx_id)
+                && variable_instance_exists(_fx_id, "fx_kind") && _fx_id.fx_kind == "xml_emitter"
+                && variable_instance_exists(_fx_id, "fx_xml_effect_name") && _fx_id.fx_xml_effect_name == _trail_key) {
+                _active_trail_emitters++;
+                if (_active_trail_emitters >= 20) break;
+            }
+        }
+        // Retain the original random ten-tick request but bound long-lived GameMaker emitters.
+        if (_active_trail_emitters < 20) {
+            var _trail_x = x + 100.0 + random_range(0.0, 20.0);
+            var _trail_y = pvz_lawn_row_y(projectile_row, _trail_x - 40.0, 90.0) + random_range(-50.0, 0.0);
+            pvz_lawn_spawn_particle(_trail_name, _trail_x, _trail_y);
+        }
     }
 
     // Zombie::SquishAllInSquare(ATTACKTYPE_DRIVE_OVER) removes ordinary plants underneath

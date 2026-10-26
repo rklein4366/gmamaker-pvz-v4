@@ -899,6 +899,32 @@ function pvz_lawn_boss_set_ball_tint(_boss, _kind) {
     if (_eye_track >= 0) _body.track_sprite_override[_eye_track] = _eye_image;
     if (_mouth_track >= 0) _body.track_sprite_override[_mouth_track] = _mouth_image;
 }
+function pvz_lawn_boss_begin_bungee(_zid) {
+    if (!instance_exists(_zid) || _zid.dead || is_undefined(_zid.body)) return;
+    _zid.phase = "boss_bungees_enter";
+    _zid.boss_target_col = irandom_range(0, 2);
+    _zid.boss_bungee_counter = irandom_range(4000, 5000);
+    _zid.boss_bungee_ids = [];
+    _zid.body.play("anim_bungee_1_enter", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 12.0);
+    _zid.special_counter = max(1, round(_zid.body.frame_count / 12.0 * 100.0));
+    _zid.special_triggered = false;
+    pvz_lawn_play_sound("hydraulic_short.ogg");
+    pvz_lawn_play_sound("bungee_scream.ogg");
+}
+
+function pvz_lawn_boss_begin_rv(_zid) {
+    if (!instance_exists(_zid) || _zid.dead || is_undefined(_zid.body)) return;
+    _zid.phase = "boss_drop_rv";
+    // The original selects rows 0..3 normally and 0..4 on the six-row Pool board.
+    var _last_target_row = min(4, max(0, pvz_lawn_active_rows() - 2));
+    _zid.boss_target_row = irandom(_last_target_row);
+    _zid.boss_target_col = irandom(2);
+    _zid.body.play("anim_RV_1", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 16.0);
+    _zid.special_counter = max(1, round(_zid.body.frame_count / 16.0 * 100.0));
+    _zid.special_triggered = false;
+    pvz_lawn_play_sound("hydraulic_short.ogg");
+}
+
 function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
     if (!instance_exists(_zid) || _zid.dead) return false;
     var _kind = _zid.zombie_kind;
@@ -1937,10 +1963,18 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                 _zid.boss_stomp_counter = irandom_range(5500, 6500);
                 _zid.boss_summon_counter = irandom_range(450, 550);
                 _zid.boss_head_counter = irandom_range(4000, 5000);
+                _zid.boss_bungee_counter = irandom_range(4000, 5000);
+                _zid.boss_mode = 0;
+                _zid.boss_bungee_ids = [];
                 _zid.body.play("anim_idle", ReanimLoop.LOOP, 0, 6.0);
             }
             return true;
         }
+        // UpdateBoss decrements each independent attack timer during all boss animations.
+        _zid.boss_stomp_counter = max(0, _zid.boss_stomp_counter - 1);
+        _zid.boss_summon_counter = max(0, _zid.boss_summon_counter - 1);
+        _zid.boss_head_counter = max(0, _zid.boss_head_counter - 1);
+        _zid.boss_bungee_counter = max(0, _zid.boss_bungee_counter - 1);
         // Source UpdateBoss keeps independent cooldowns; stomps are intentionally several seconds apart.
         if (_zid.phase == "boss_idle") {
             // PVZ_BOSS_DEATH_IDLE_FINALIZE_V1: original UpdateBoss sees the one-health sentinel immediately after BossPlayIdle.
@@ -1949,12 +1983,20 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                 return true;
             }
             _zid.special_counter--;
-            _zid.boss_stomp_counter--;
-            _zid.boss_summon_counter--;
-            _zid.boss_head_counter--;
             // BossPlayIdle uses LOOP at 6 FPS. The independent attack countdowns may
             // expire before the first loop is complete; do not interrupt that first full cycle.
             if (_zid.special_counter <= 0 && _zid.body.loop_count > 0) {
+                var _boss_current_mode = clamp(_zid.body_damage_index, 0, 2);
+                if (_boss_current_mode != _zid.boss_mode) {
+                    _zid.boss_mode = _boss_current_mode;
+                    if (_boss_current_mode == 1) {
+                        pvz_lawn_boss_begin_bungee(_zid);
+                        return true;
+                    } else if (_boss_current_mode >= 2) {
+                        pvz_lawn_boss_begin_rv(_zid);
+                        return true;
+                    }
+                }
                 if (_zid.boss_stomp_counter <= 0) {
                     _zid.phase = "boss_stomp";
                     _zid.boss_stomp_counter = irandom_range(5500, 6500);
@@ -1965,6 +2007,14 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
                     _zid.body.play(_stomp_anim, ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 12.0);
                     _zid.special_triggered = false;
                     _zid.special_counter = max(1, round(_zid.body.frame_count / 12.0 * 100.0));
+                } else if (_zid.boss_bungee_counter <= 0) {
+                    // Original Adventure boss rotation chooses RV about once in four choices.
+                    if (irandom(3) == 0) {
+                        _zid.boss_bungee_counter = irandom_range(4000, 5000);
+                        pvz_lawn_boss_begin_rv(_zid);
+                    } else {
+                        pvz_lawn_boss_begin_bungee(_zid);
+                    }
                 } else if (_zid.boss_head_counter <= 0) {
                     _zid.phase = "boss_head_enter";
                     _zid.boss_head_counter = 4500;
@@ -1999,6 +2049,75 @@ function pvz_lawn_zombie_step_special(_zid, _ground_speed) {
             return true;
         }
         _zid.special_counter--;
+        if (_zid.phase == "boss_bungees_enter") {
+            // Zombie::UpdateBoss calls BossBungeeSpawn at animation time 0.4.
+            if (_zid.body.anim_time >= 0.4 && !_zid.special_triggered) {
+                _zid.special_triggered = true;
+                _zid.phase = "boss_bungees_drop";
+                _zid.boss_bungee_ids = [];
+                for (var _bi = 0; _bi < 3; _bi++) {
+                    var _preferred_col = clamp(_zid.boss_target_col + _bi, 0, PVZ_COLS - 1);
+                    var _bungee = instance_create_layer(0, 0, "Instances", obj_zombie_bungee,
+                        {row: 0, bungee_preferred_col: _preferred_col});
+                    if (instance_exists(_bungee) && !_bungee.dead && !is_undefined(_bungee.body)) {
+                        _bungee.altitude = max(0, _bungee.y - 30.0);
+                        _bungee.body.x = _bungee.x;
+                        _bungee.body.y = _bungee.y - _bungee.altitude;
+                        array_push(_zid.boss_bungee_ids, _bungee);
+                    }
+                }
+            }
+            return true;
+        }
+        if (_zid.phase == "boss_bungees_drop") {
+            var _bungees_rising = false;
+            var _bungees_remaining = 0;
+            for (var _bj = 0; _bj < array_length(_zid.boss_bungee_ids); _bj++) {
+                var _live_bungee = _zid.boss_bungee_ids[_bj];
+                if (instance_exists(_live_bungee) && !_live_bungee.dead) {
+                    _bungees_remaining++;
+                    if (_live_bungee.phase == "bungee_rise") _bungees_rising = true;
+                }
+            }
+            // Source BossAreBungeesDone returns when any Bungee starts rising, or none remain.
+            if (_bungees_rising || _bungees_remaining == 0) {
+                _zid.phase = "boss_bungees_leave";
+                _zid.body.play("anim_bungee_1_leave", ReanimLoop.PLAY_ONCE_AND_HOLD, 0, 18.0);
+                _zid.special_counter = max(1, round(_zid.body.frame_count / 18.0 * 100.0));
+            }
+            return true;
+        }
+        if (_zid.phase == "boss_bungees_leave") {
+            if (_zid.body.loop_count > 0 || _zid.special_counter <= 0) {
+                _zid.phase = "boss_idle";
+                _zid.special_counter = irandom_range(100, 200);
+                _zid.body.play("anim_idle", ReanimLoop.LOOP, 0, 6.0);
+            }
+            return true;
+        }
+        if (_zid.phase == "boss_drop_rv") {
+            // Zombie::UpdateBoss calls BossRVLanding at animation time 0.65.
+            if (_zid.body.anim_time >= 0.65 && !_zid.special_triggered) {
+                _zid.special_triggered = true;
+                for (var _rv_row = _zid.boss_target_row; _rv_row <= min(pvz_lawn_active_rows() - 1, _zid.boss_target_row + 1); _rv_row++) {
+                    for (var _rv_col = _zid.boss_target_col; _rv_col <= min(PVZ_COLS - 1, _zid.boss_target_col + 2); _rv_col++) {
+                        var _rv_plant = global.pvz_lawn_grid[# _rv_col, _rv_row];
+                        if (instance_exists(_rv_plant)) pvz_lawn_plant_squish(_rv_plant);
+                    }
+                }
+                pvz_lawn_play_sound("RVthrow.ogg");
+                _zid.boss_summon_counter = 500;
+                _zid.boss_head_counter = 5000;
+                if (_zid.boss_mode >= 1) _zid.boss_stomp_counter = 4000;
+                if (_zid.boss_mode >= 2) _zid.boss_bungee_counter = 6500;
+            }
+            if (_zid.body.loop_count > 0 || _zid.special_counter <= 0) {
+                _zid.phase = "boss_idle";
+                _zid.special_counter = irandom_range(100, 200);
+                _zid.body.play("anim_idle", ReanimLoop.LOOP, 0, 6.0);
+            }
+            return true;
+        }
         if (_zid.phase == "boss_head_enter" && !_zid.boss_head_enter_sfx_played && _zid.body.anim_time >= 0.55) {
             _zid.boss_head_enter_sfx_played = true;
             pvz_lawn_play_sound("hydraulic.ogg"); // Zombie::UpdateBoss timed foley at 0.55.
@@ -5418,7 +5537,7 @@ function pvz_lawn_plant_draw(_kind) {
     if (!is_undefined(blink)) pvz_lawn_set_reanim_flash(blink, eaten_flash_countdown, "plant");
 }
 
-function pvz_lawn_zombie_pick_bungee_target(_zid) {
+function pvz_lawn_zombie_pick_bungee_target(_zid, _preferred_col = -1) {
     if (!instance_exists(_zid) || !variable_global_exists("pvz_lawn_grid")) return false;
 
     // Zombie::PickBungeeZombieTarget gives an eligible planted cell weight 10000
@@ -5444,6 +5563,7 @@ function pvz_lawn_zombie_pick_bungee_target(_zid) {
     var _choices = [];
     var _total_weight = 0;
     for (var _c = 0; _c < PVZ_COLS; _c++) {
+        if (_preferred_col >= 0 && _c != _preferred_col) continue;
         for (var _r = 0; _r < pvz_lawn_active_rows(); _r++) {
             var _p = global.pvz_lawn_grid[# _c, _r];
             var _weight = 1;
@@ -5559,6 +5679,10 @@ function pvz_lawn_zombie_init(_kind) {
     boss_stomp_counter = irandom_range(5500, 6500);
     boss_summon_counter = irandom_range(450, 550);
     boss_head_counter = irandom_range(4000, 5000);
+    boss_bungee_counter = irandom_range(4000, 5000);
+    boss_mode = 0;
+    boss_target_col = 0;
+    boss_bungee_ids = [];
     boss_phase_event_done = false;
     flag_part = undefined;
     flag_dropped = false;
@@ -5629,7 +5753,8 @@ function pvz_lawn_zombie_init(_kind) {
     body = new Reanim(_aname, x, y);
     body.scale_x = 1.0; body.scale_y = 1.0; body.loop_type = ReanimLoop.LOOP;
     if (_kind == "bungee" && !intro_preview) {
-        if (!pvz_lawn_zombie_pick_bungee_target(id)) {
+        var _bungee_preferred_col = variable_instance_exists(id, "bungee_preferred_col") ? bungee_preferred_col : -1;
+        if (!pvz_lawn_zombie_pick_bungee_target(id, _bungee_preferred_col)) {
             // A board Bungee requires an eligible plant target in the original game.
             instance_destroy(id);
             exit;
@@ -5733,14 +5858,15 @@ function pvz_lawn_zombie_init(_kind) {
         if (_red_eye_head_track >= 0 && _red_eye_head_sprite >= 0) body.track_sprite_override[_red_eye_head_track] = _red_eye_head_sprite;
     }
     if (_kind == "boss") {
-        // Zombie::BossSetupReanim: assign only the source's original groups. The outer arm stays
-        // in the main body pass; hiding it in group 3 made Zomboss's hand disappear during attacks.
+        // Match Zombie.h / Zombie::BossSetupReanim: 4=back leg, 5=front leg/body2,
+        // 6=spawning inner arm/RV. The outer arm remains in normal render group 0.
+        // Group 1 put the spawning hand behind the lawn, making it look invisible.
         body.frame_base_pose = 0;
         for (var _boss_ti = 0; _boss_ti < body.track_count; _boss_ti++) {
             var _boss_track_name = string_lower(body.def.tracks[_boss_ti].name);
-            if (string_pos("boss_innerleg", _boss_track_name) == 1 || string_pos("boss_innerarm", _boss_track_name) == 1 || string_pos("boss_rv", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 1;
-            else if (string_pos("boss_outerleg", _boss_track_name) == 1 || string_pos("boss_body2", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 2;
-            else if (string_pos("boss_outerarm", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 3;
+            if (string_pos("boss_innerleg", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 4;
+            else if (string_pos("boss_outerleg", _boss_track_name) == 1 || string_pos("boss_body2", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 5;
+            else if (string_pos("boss_innerarm", _boss_track_name) == 1 || string_pos("boss_rv", _boss_track_name) == 1) body.track_render_group[_boss_ti] = 6;
         }
         boss_driver_part = new Reanim("Zombie_Boss_driver", x, y);
         boss_driver_part.play("anim_idle", ReanimLoop.LOOP, 0, 18.0);
@@ -5863,10 +5989,12 @@ function pvz_lawn_zombie_draw(_kind) {
     var _snowpea_tint = _chill_active ? make_color_rgb(75, 75, 255) : c_white;
     // PVZ_BOSS_LOW_HEALTH_FLASH_V1: reproduce the original grayscale bounce below BOSS_FLASH_HEALTH_FRACTION (10% HP).
     var _boss_low_health_flash = (_kind == "boss" && !dead && body_health < body_max_health / 10.0);
+    var _boss_bounce = 0.0;
+    var _boss_gray = 255;
     if (_boss_low_health_flash) {
         var _boss_pulse_age = (global.pvz_lawn_tick mod 40) / 39.0;
-        var _boss_bounce = 1.0 - abs(2.0 * _boss_pulse_age - 1.0);
-        var _boss_gray = round(155.0 + 100.0 * _boss_bounce);
+        _boss_bounce = 1.0 - abs(2.0 * _boss_pulse_age - 1.0);
+        _boss_gray = round(155.0 + 100.0 * _boss_bounce);
         if (_chill_active) {
             var _boss_cold = round(65.0 + 10.0 * _boss_bounce);
             pvz_lawn_reanim_set_tint(body, true, make_color_rgb(_boss_cold, _boss_cold, _boss_gray));
@@ -5944,9 +6072,23 @@ function pvz_lawn_zombie_draw(_kind) {
     // Board::AddBossRenderItem draws back leg, front leg/body, then main body; group 3
     // (Boss_innerarm/Boss_RV) is drawn by Draw End after the lane objects.
     if (_kind == "boss") {
-        pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x, 1);
-        pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x, 2);
+        pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x, 4);
+        pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x, 5);
         pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x, 0);
+        var _boss_mask_alpha = 0.0;
+        var _boss_mask_tint = c_white;
+        if (_boss_low_health_flash) {
+            _boss_mask_alpha = 0.06 + 0.06 * _boss_bounce;
+            _boss_mask_tint = make_color_rgb(_boss_gray, _boss_gray, _boss_gray);
+        } else if (body.flash_alpha > 0) {
+            _boss_mask_alpha = clamp(body.flash_alpha * 0.18, 0, 0.16);
+        }
+        if (_boss_mask_alpha > 0.001) {
+            pvz_lawn_draw_boss_mask_overlay(id, "Boss_neck", "reanim/Zombie_boss_neck_.png",
+                _draw_x, _draw_y, global.pvz_lawn_camera_x, _boss_mask_tint, _boss_mask_alpha);
+            pvz_lawn_draw_boss_mask_overlay(id, "Boss_body1", "reanim/Zombie_boss_upperbody_.png",
+                _draw_x, _draw_y, global.pvz_lawn_camera_x, _boss_mask_tint, _boss_mask_alpha);
+        }
     } else pvz_lawn_reanim_draw_camera(body, _draw_x, _draw_y, global.pvz_lawn_camera_x);
     if (_kind == "bobsled_team" && _sled_front_sprite >= 0) draw_sprite_ext(_sled_front_sprite, 0, x - 76 - global.pvz_lawn_camera_x, _draw_y + 15, 1, 1, 0, c_white, _sled_alpha);
     if (_spotlight_active && global.pvz_fx_dancer_spotlight >= 0) draw_sprite_ext(global.pvz_fx_dancer_spotlight, 0, _draw_x - 30 - global.pvz_lawn_camera_x, _draw_y - 480, 4, 4, 0, _spot_color, 1);
@@ -5956,10 +6098,52 @@ function pvz_lawn_zombie_draw(_kind) {
 }
 
 
-/// Board::DrawBossPart(BOSS_PART_MAIN) plus the source's separate foreground arm pass.
+/// Draw a white mask over a boss Reanim part while leaving its textured art intact.
+function pvz_lawn_draw_boss_mask_overlay(_boss, _track_name, _mask_path, _world_x, _world_y, _camera_x, _tint, _alpha) {
+    if (!instance_exists(_boss) || _boss.dead || is_undefined(_boss.body) || _alpha <= 0) return;
+    var _reanim = _boss.body;
+    var _mask_sprite = reanim_get_part_sprite(_mask_path);
+    if (_mask_sprite < 0) return;
+    var _track_index = _reanim.find_track(_track_name);
+    if (_track_index < 0 && _track_name == "Boss_body1") _track_index = _reanim.find_track("Boss_upperbody");
+    if (_track_index < 0) return;
+    var _old_x = _reanim.x;
+    var _old_y = _reanim.y;
+    _reanim.x = _world_x - _camera_x;
+    _reanim.y = _world_y;
+    var _frame_time = _reanim.get_frame_time();
+    var _track_transform = _reanim.get_current_transform(_track_index, _frame_time);
+    if (round(_track_transform[RT_FRAME]) >= 0 && _track_transform[RT_ALPHA] > 0) {
+        var _matrix = mat2_mul(_reanim.get_overlay_matrix(), mat2_from_transform(_track_transform));
+        var _width = sprite_get_width(_mask_sprite);
+        var _height = sprite_get_height(_mask_sprite);
+        var _x1 = _matrix[2], _y1 = _matrix[5];
+        var _x2 = _matrix[0] * _width + _matrix[2], _y2 = _matrix[3] * _width + _matrix[5];
+        var _x4 = _matrix[1] * _height + _matrix[2], _y4 = _matrix[4] * _height + _matrix[5];
+        var _x3 = _x2 + (_x4 - _x1), _y3 = _y2 + (_y4 - _y1);
+        gpu_set_blendmode(bm_add);
+        pvz_reanim_draw_sprite_pos_tinted(_mask_sprite, _x1, _y1, _x2, _y2, _x3, _y3, _x4, _y4,
+            _tint, clamp(_alpha * _track_transform[RT_ALPHA], 0, 1));
+        gpu_set_blendmode(bm_normal);
+        draw_set_color(c_white);
+    }
+    _reanim.x = _old_x;
+    _reanim.y = _old_y;
+}
+
+/// Draw the source's BossPart::BOSS_PART_BACK_ARM pass after lane objects.
 function pvz_lawn_draw_boss_front_arm(_boss) {
     if (!instance_exists(_boss) || _boss.dead || is_undefined(_boss.body)) return;
     pvz_lawn_reanim_draw_camera(_boss.body, 0, 0, global.pvz_lawn_camera_x, 3);
+    var _arm_offset_x = 0.0;
+    var _arm_offset_y = 0.0;
+    if (_boss.phase == "boss_drop_rv") {
+        _arm_offset_y = (_boss.boss_target_row - 1) * 85.0 - _boss.boss_target_col * 20.0;
+        _arm_offset_x = _boss.boss_target_col * 80.0;
+    } else if (_boss.phase == "boss_bungees_enter" || _boss.phase == "boss_bungees_drop" || _boss.phase == "boss_bungees_leave") {
+        _arm_offset_x = _boss.boss_target_col * 80.0 - 23.0;
+    }
+    pvz_lawn_reanim_draw_camera(_boss.body, _arm_offset_x, _arm_offset_y, global.pvz_lawn_camera_x, 6);
 }
 
 
